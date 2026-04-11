@@ -277,6 +277,15 @@ Phase 1: Infrastructure  →  Phase 2: Ingestion Worker  →  Phase 3: Query API
 6. Attach metadata + generate deterministic `uuid5(title+section+chunk_index)` point IDs
 7. Batch embed (batch=64) via nomic embedder → upsert `PointStruct`s to Qdrant · verify with point count
 
+=> PROMPT FOR CLAUDE CODE:
+"Read CLAUDE.md and implement Phase 2 — the ingestion worker. Use the exact parameters from CLAUDE.md throughout:
+1. worker/download.py — streaming Cirrus JSON downloader from dumps.wikimedia.org, line-by-line to keep memory flat, ~22 GB compressed input
+2. worker/parse.py — filter: keep top 15% by pageview rank, discard stubs < 300 tokens. Parse: extract title, section texts, opening_text, last_modified timestamp. Clean: strip [N] citation markers, HTML entities, table artefacts, normalise whitespace, drop sections < 50 tokens. Chunk: ≤600 tok → 1 chunk as-is · >600 tok → split at paragraph boundaries with 50-tok overlap · <50 tok → merge with previous section
+3. worker/embed.py — batch embed via nomic embedder container at http://embedder:11434, batch size 64, mean-pool + L2-norm → float32[768]. Generate deterministic point IDs using uuid5(title + section + chunk_index). Upsert PointStruct(id, vector, payload) to Qdrant. Payload must include: title, section, url, last_modified, pageview_rank, chunk_index
+4. worker/ingest.py — wire all steps together, support a --limit N flag for testing on a small article slice (e.g. 10k articles) before the full run. Log progress at each stage.
+5. worker/Dockerfile — Python 3.11 slim base, install from requirements.txt, set working directory to /app
+6. Read all config (Qdrant host/port, embedder host/port, collection name) from environment variables defined in .env. Do not hardcode any values."
+
 > **Tip:** Run on a 10k-article slice first to validate quality before the full ~4–6 h GPU run.
 
 ### Phase 3 — Query API (FastAPI)

@@ -53,17 +53,23 @@ services:
   # ── Application containers (Phase 2 & 3) ────────────────────────────────────
 
   worker:
-    build: ./worker
+    build: 
+      context: ./worker
+    platform: linux/amd64
     env_file: .env
     depends_on:
       qdrant:
         condition: service_healthy
       embedder:
         condition: service_healthy
+    volumes:
+      - wiki_dump:/data    # persists the 22 GB compressed dump across restarts
     restart: on-failure
 
   api:
-    build: ./api
+    build: 
+      context: ./worker
+    platform: linux/amd64
     env_file: .env
     depends_on:
       qdrant:
@@ -79,3 +85,4 @@ services:
 volumes:
   qdrant_storage:   # persists 15–20 GB vector index across restarts
   ollama_models:    # persists nomic-embed-text model weights across restarts
+  wiki_dump:        # persists the 22 GB compressed Cirrus dump across restarts
