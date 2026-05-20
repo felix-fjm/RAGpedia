@@ -126,7 +126,7 @@ embedder/
 - **20 GB free disk space** for the Qdrant vector index
 - An API key from **OpenAI**, **Anthropic**, or a local **Ollama** model
 - **GPU strongly recommended** for initial ingestion (CPU-only: ~2–3 days; GPU: ~4–6 hours)
-- A `get-docker.sh` script is included for convenience on fresh Linux servers.
+- A `get-docker.sh` script is included for convenience on fresh Linux servers
 
 > **Windows users:** Run all commands inside WSL2 Ubuntu. Open a WSL shell with `wsl -d Ubuntu`.
 
