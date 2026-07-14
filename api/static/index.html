@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WikiRAG</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f4f4f6;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; letter-spacing: 0.04em; }
+    header h1 span { opacity: 0.55; font-weight: 400; }
+
+    .settings-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.35);
+      color: #fff;
+      padding: 0.35rem 0.85rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .settings-btn:hover { background: rgba(255,255,255,0.08); }
+
+    /* ── Settings panel ── */
+    .settings-panel {
+      background: #fff;
+      border-bottom: 1px solid #dde0e8;
+      padding: 0 1.5rem;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.2s ease, padding 0.2s ease;
+    }
+    .settings-panel.open {
+      max-height: 120px;
+      padding: 1rem 1.5rem;
+    }
+    .settings-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .field.wide { flex: 1; min-width: 260px; }
+    label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #666;
+    }
+    input, select {
+      border: 1px solid #ccd;
+      border-radius: 4px;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.95rem;
+      color: #1a1a2e;
+      width: 100%;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #1a1a2e;
+    }
+
+    /* ── Main ── */
+    main {
+      max-width: 780px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .search-row {
+      display: flex;
+      gap: 0.6rem;
+      margin-bottom: 1.5rem;
+    }
+    #question {
+      flex: 1;
+      border: 1px solid #ccd;
+      border-radius: 6px;
+      padding: 0.7rem 0.8rem;
+      font-size: 1rem;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 56px;
+      line-height: 1.5;
+    }
+    #question:focus {
+      outline: none;
+      border-color: #1a1a2e;
+    }
+    #submitBtn {
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0 1.3rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+      white-space: nowrap;
+      min-width: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #submitBtn:hover { background: #16213e; }
+    #submitBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Cards ── */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.4rem 1.6rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 1rem;
+    }
+    .card-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #999;
+      margin-bottom: 0.75rem;
+    }
+    .answer-text {
+      line-height: 1.75;
+      white-space: pre-wrap;
+    }
+
+    /* ── Sources ── */
+    .source-item {
+      padding: 0.55rem 0;
+      border-bottom: 1px solid #f0f0f4;
+    }
+    .source-item:last-child { border-bottom: none; }
+    .source-title {
+      color: #1a1a2e;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .source-title:hover { text-decoration: underline; }
+    .source-section { font-size: 0.875rem; color: #777; margin-top: 0.1rem; }
+
+    /* ── Error ── */
+    .error-box {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      color: #991b1b;
+      border-radius: 6px;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      background: #dbeafe;
+      color: #1d4ed8;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-left: 0.4rem;
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.55s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .placeholder {
+      text-align: center;
+      color: #bbb;
+      padding: 3.5rem 0;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Wiki<span>RAG</span></h1>
+  <button class="settings-btn" onclick="toggleSettings()">&#9881; Settings</button>
+</header>
+
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-row">
+    <div class="field">
+      <label>Model</label>
+      <select id="model">
+        <option value="gpt-4o-mini">gpt-4o-mini (OpenAI)</option>
+        <option value="gpt-4o">gpt-4o (OpenAI)</option>
+        <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (Anthropic)</option>
+        <option value="claude-sonnet-5">claude-sonnet-5 (Anthropic)</option>
+        <option value="llama3.2">llama3.2 (local Ollama)</option>
+      </select>
+    </div>
+    <div class="field wide">
+      <label>API Key</label>
+      <input
+        type="password"
+        id="apiKey"
+        placeholder="sk-… or sk-ant-…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="search-row">
+    <textarea id="question" placeholder="Ask a question grounded in Wikipedia…" rows="2"></textarea>
+    <button id="submitBtn" onclick="submitQuery()">Ask</button>
+  </div>
+  <div id="output">
+    <div class="placeholder">Enter a question above to search the Wikipedia index.</div>
+  </div>
+</main>
+
+<script>
+  function toggleSettings() {
+    document.getElementById('settingsPanel').classList.toggle('open');
+  }
+
+  document.getElementById('question').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitQuery();
+    }
+  });
+
+  async function submitQuery() {
+    const question = document.getElementById('question').value.trim();
+    const model    = document.getElementById('model').value;
+    const apiKey   = document.getElementById('apiKey').value.trim();
+    const btn      = document.getElementById('submitBtn');
+    const output   = document.getElementById('output');
+
+    if (!question) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    output.innerHTML = '';
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+
+    try {
+      const res = await fetch('/query', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ question, model }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
+      }
+
+      const data = await res.json();
+      renderResult(data);
+    } catch (err) {
+      output.innerHTML =
+        '<div class="error-box"><strong>Error:</strong> ' + esc(err.message) + '</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Ask';
+    }
+  }
+
+  function renderResult(data) {
+    const cachedBadge = data.cached ? '<span class="badge">cached</span>' : '';
+
+    const sourcesHtml = data.sources.length
+      ? data.sources.map(s =>
+          '<div class="source-item">' +
+            '<a class="source-title" href="' + esc(s.url) + '" target="_blank" rel="noopener">' +
+              esc(s.title) +
+            '</a>' +
+            '<div class="source-section">' + esc(s.section) + '</div>' +
+          '</div>'
+        ).join('')
+      : '<div style="color:#bbb;padding:0.5rem 0">No sources returned.</div>';
+
+    document.getElementById('output').innerHTML =
+      '<div class="card">' +
+        '<div class="card-label">Answer' + cachedBadge + '</div>' +
+        '<div class="answer-text">' + esc(data.answer) + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="card-label">Sources (' + data.sources.length + ')</div>' +
+        sourcesHtml +
+      '</div>';
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>

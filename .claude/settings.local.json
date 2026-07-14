@@ -3,7 +3,13 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.ollama.com)"
+      "WebFetch(domain:docs.ollama.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:ollama.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "Read(//mnt/c/Users/fjmul/ragpedia_app/api/static/**)",
+      "Bash(powershell.exe -Command \"Select-String -Pattern 'claude-|gpt-|llama' C:\\\\Users\\\\fjmul\\\\ragpedia_app\\\\api\\\\static\\\\index.html | Select-Object LineNumber,Line\")"
     ]
   }
 }

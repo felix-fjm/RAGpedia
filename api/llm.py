@@ -14,6 +14,24 @@ import httpx
 import anthropic as anthropic_lib
 import openai
 
+# Models offered in the UI.  validate_model() checks against this set so
+# unrecognised strings are rejected with a clear 422 before hitting any
+# provider API.
+KNOWN_MODELS: frozenset[str] = frozenset({
+    "gpt-4o",
+    "gpt-4o-mini",
+    "claude-sonnet-5",
+    "claude-haiku-4-5-20251001",
+    "llama3.2",
+})
+
+
+def validate_model(model: str) -> None:
+    """Raise ValueError with a human-readable list if model is not recognised."""
+    if model not in KNOWN_MODELS:
+        supported = ", ".join(sorted(KNOWN_MODELS))
+        raise ValueError(f"Unsupported model '{model}'. Supported models: {supported}")
+
 
 def _provider(model: str) -> str:
     if model.startswith(("gpt-", "o1", "o3", "text-")):

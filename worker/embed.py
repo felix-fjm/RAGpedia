@@ -46,20 +46,22 @@ def make_point_id(title: str, section: str, chunk_index: int) -> str:
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
 
-_MAX_WORDS = 2000  # safety margin: nomic context is 8192 BPE tokens; BPE ≈ 2× words, so 2000 words ≈ 4000 BPE tokens
+_MAX_WORDS = 1200   # nomic context is 8192 BPE tokens; wikitext markup can push BPE/word ratio well above 2×,
+                    # so 1200 words ≈ ~2400 BPE tokens — comfortably under the limit even for markup-heavy articles
+_RETRY_WORDS = 600  # emergency fallback if a 1200-word chunk still triggers a 400
 
 
-def _truncate(text: str, title: str | None = None) -> str:
-    """Truncate text to _MAX_WORDS whitespace-separated words if needed."""
+def _truncate(text: str, max_words: int, title: str | None = None) -> str:
+    """Truncate text to max_words whitespace-separated words, logging a WARNING if applied."""
     words = text.split()
-    if len(words) <= _MAX_WORDS:
+    if len(words) <= max_words:
         return text
     label = f"'{title}'" if title else "(no title)"
     logger.warning(
         "Truncating chunk %s from %d words to %d words before embedding.",
-        label, len(words), _MAX_WORDS,
+        label, len(words), max_words,
     )
-    return " ".join(words[:_MAX_WORDS])
+    return " ".join(words[:max_words])
 
 
 def embed_texts(
@@ -83,15 +85,31 @@ def embed_texts(
     embeddings = []
     for i, text in enumerate(texts):
         title = titles[i] if titles else None
-        payload = {"model": model, "input": _truncate(text, title)}
+        payload = {"model": model, "input": _truncate(text, _MAX_WORDS, title)}
         if i == 0:
             logger.debug("embed_texts payload (first text): %s", payload)
-        response = httpx.post(
-            f"{embedder_url}/api/embed",
-            json=payload,
-            timeout=120.0,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                f"{embedder_url}/api/embed",
+                json=payload,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 400:
+                raise
+            # 400 despite _MAX_WORDS truncation — retry at _RETRY_WORDS (emergency fallback)
+            logger.warning(
+                "400 from embedder for title=%r (payload ~%d words) — retrying at %d words.",
+                title, len(payload["input"].split()), _RETRY_WORDS,
+            )
+            payload["input"] = _truncate(text, _RETRY_WORDS, title)
+            response = httpx.post(
+                f"{embedder_url}/api/embed",
+                json=payload,
+                timeout=120.0,
+            )
+            response.raise_for_status()
         embeddings.append(response.json()["embeddings"][0])
 
     vectors = np.array(embeddings, dtype=np.float32)
@@ -131,6 +149,25 @@ def upsert_chunks(
         leave=False,
     ):
         batch = chunks[batch_start : batch_start + batch_size]
+
+        # Guard: log and skip any chunk whose text is empty or whitespace-only.
+        # An empty string sent to /api/embed causes a 400 from Ollama.
+        valid_batch = []
+        for c in batch:
+            if not c.get("text", "").strip():
+                logger.warning(
+                    "Skipping empty-text chunk — title=%r section=%r chunk_index=%d",
+                    c.get("title", ""),
+                    c.get("section", ""),
+                    c.get("chunk_index", -1),
+                )
+            else:
+                valid_batch.append(c)
+
+        if not valid_batch:
+            continue
+
+        batch = valid_batch
         texts = [c["text"] for c in batch]
         titles = [c["title"] for c in batch]
 

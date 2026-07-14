@@ -91,10 +91,10 @@ def health() -> dict:
 
 @app.get("/")
 def ui():
-    index = STATIC_DIR / "index.js"
+    index = STATIC_DIR / "index.html"
     if not index.exists():
         raise HTTPException(status_code=404, detail="UI not yet implemented")
-    return FileResponse(index, media_type="application/javascript")
+    return FileResponse(index, media_type="text/html")
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -114,6 +114,11 @@ def query(
     model = req.model.strip()
     if not model:
         raise HTTPException(status_code=422, detail="model must not be empty")
+
+    try:
+        llm_mod.validate_model(model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Step 1 — cache key
     q_hash = cache_mod.question_hash(question, model)
