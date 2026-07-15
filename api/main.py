@@ -91,10 +91,7 @@ def health() -> dict:
 
 @app.get("/")
 def ui():
-    index = STATIC_DIR / "index.html"
-    if not index.exists():
-        raise HTTPException(status_code=404, detail="UI not yet implemented")
-    return FileResponse(index, media_type="text/html")
+    return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
 
 
 @app.post("/query", response_model=QueryResponse)
