@@ -69,25 +69,33 @@ def embed_texts(
     embedder_url: str,
     model: str,
     titles: list[str] | None = None,
-) -> np.ndarray:
+    sections: list[str] | None = None,
+    chunk_indices: list[int] | None = None,
+) -> tuple[np.ndarray, set[int]]:
     """
     Embed a list of texts via Ollama POST /api/embed, one request per text.
 
-    /api/embed accepts {"model": str, "input": str} with a single string
-    and returns {"embeddings": [[...768 floats...]]}.
+    On a 400 response, logs a WARNING with full chunk diagnostics and retries
+    once at _RETRY_WORDS.  If that also returns 400, logs an ERROR and records
+    the position in failed_indices (a zero-vector placeholder is inserted so
+    the array shape stays consistent — callers must skip these positions).
 
-    texts are truncated to _MAX_WORDS words before sending to avoid
-    exceeding the model's 8192-token context window.
-
-    Returns float32 array of shape (len(texts), 768), L2-normalised.
-    Raises httpx.HTTPStatusError on API errors.
+    Returns:
+        vectors        — float32 array shape (len(texts), 768), L2-normalised
+        failed_indices — set of positions that could not be embedded
     """
-    embeddings = []
+    embeddings: list = []
+    failed_indices: set[int] = set()
+
     for i, text in enumerate(texts):
-        title = titles[i] if titles else None
+        title        = titles[i]        if titles        else None
+        section      = sections[i]      if sections      else None
+        chunk_index  = chunk_indices[i] if chunk_indices else None
+
         payload = {"model": model, "input": _truncate(text, _MAX_WORDS, title)}
         if i == 0:
             logger.debug("embed_texts payload (first text): %s", payload)
+
         try:
             response = httpx.post(
                 f"{embedder_url}/api/embed",
@@ -98,18 +106,40 @@ def embed_texts(
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 400:
                 raise
-            # 400 despite _MAX_WORDS truncation — retry at _RETRY_WORDS (emergency fallback)
+
+            # First 400 — log diagnostic, then retry at _RETRY_WORDS
             logger.warning(
-                "400 from embedder for title=%r (payload ~%d words) — retrying at %d words.",
-                title, len(payload["input"].split()), _RETRY_WORDS,
+                "400 from embedder — retrying at %d words. "
+                "title=%r section=%r chunk_index=%r len(text)=%d "
+                "text[:200]=%r … text[-200:]=%r",
+                _RETRY_WORDS,
+                title, section, chunk_index, len(text),
+                text[:200], text[-200:],
             )
             payload["input"] = _truncate(text, _RETRY_WORDS, title)
-            response = httpx.post(
-                f"{embedder_url}/api/embed",
-                json=payload,
-                timeout=120.0,
-            )
-            response.raise_for_status()
+
+            try:
+                response = httpx.post(
+                    f"{embedder_url}/api/embed",
+                    json=payload,
+                    timeout=120.0,
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as retry_exc:
+                if retry_exc.response.status_code != 400:
+                    raise
+                # Persistent 400 after retry — skip this chunk, do not crash
+                logger.error(
+                    "Persistent 400 after retry — skipping chunk. "
+                    "title=%r section=%r chunk_index=%r len(text)=%d "
+                    "text[:200]=%r … text[-200:]=%r",
+                    title, section, chunk_index, len(text),
+                    text[:200], text[-200:],
+                )
+                failed_indices.add(i)
+                embeddings.append(np.zeros(VECTOR_SIZE, dtype=np.float32))
+                continue
+
         embeddings.append(response.json()["embeddings"][0])
 
     vectors = np.array(embeddings, dtype=np.float32)
@@ -119,7 +149,7 @@ def embed_texts(
     norms = np.where(norms == 0, 1.0, norms)  # avoid division by zero
     vectors = vectors / norms
 
-    return vectors
+    return vectors, failed_indices
 
 
 # ── Upsert pipeline ───────────────────────────────────────────────────────────
@@ -131,16 +161,21 @@ def upsert_chunks(
     embedder_url: str,
     model: str,
     batch_size: int = 64,
-) -> int:
+) -> tuple[int, list[dict]]:
     """
     Embed `chunks` in batches and upsert PointStructs to Qdrant.
 
     Each chunk dict must contain: text, title, section, url,
     last_modified, pageview_rank, chunk_index.
 
-    Returns the total number of points upserted.
+    Returns:
+        (total_upserted, skipped_chunks)
+        total_upserted — number of points successfully upserted
+        skipped_chunks — list of {title, section, chunk_index} dicts for
+                         chunks that could not be embedded after retrying
     """
     total_upserted = 0
+    all_skipped: list[dict] = []
 
     for batch_start in tqdm(
         range(0, len(chunks), batch_size),
@@ -168,29 +203,45 @@ def upsert_chunks(
             continue
 
         batch = valid_batch
-        texts = [c["text"] for c in batch]
-        titles = [c["title"] for c in batch]
+        texts         = [c["text"]        for c in batch]
+        titles        = [c["title"]       for c in batch]
+        sections      = [c["section"]     for c in batch]
+        chunk_idx_list = [c["chunk_index"] for c in batch]
 
-        vectors = embed_texts(texts, embedder_url, model, titles=titles)
+        vectors, failed_indices = embed_texts(
+            texts, embedder_url, model,
+            titles=titles,
+            sections=sections,
+            chunk_indices=chunk_idx_list,
+        )
 
-        points = [
-            PointStruct(
-                id=make_point_id(c["title"], c["section"], c["chunk_index"]),
-                vector=vectors[i].tolist(),
-                payload={
-                    "title": c["title"],
-                    "section": c["section"],
-                    "url": c["url"],
-                    "last_modified": c["last_modified"],
-                    "pageview_rank": c["pageview_rank"],
+        points = []
+        for i, c in enumerate(batch):
+            if i in failed_indices:
+                all_skipped.append({
+                    "title":       c["title"],
+                    "section":     c["section"],
                     "chunk_index": c["chunk_index"],
-                    "text": c["text"],
-                },
+                })
+                continue
+            points.append(
+                PointStruct(
+                    id=make_point_id(c["title"], c["section"], c["chunk_index"]),
+                    vector=vectors[i].tolist(),
+                    payload={
+                        "title":        c["title"],
+                        "section":      c["section"],
+                        "url":          c["url"],
+                        "last_modified": c["last_modified"],
+                        "pageview_rank": c["pageview_rank"],
+                        "chunk_index":  c["chunk_index"],
+                        "text":         c["text"],
+                    },
+                )
             )
-            for i, c in enumerate(batch)
-        ]
 
-        client.upsert(collection_name=collection_name, points=points)
+        if points:
+            client.upsert(collection_name=collection_name, points=points)
         total_upserted += len(points)
 
-    return total_upserted
+    return total_upserted, all_skipped

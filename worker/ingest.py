@@ -86,6 +86,7 @@ def main() -> None:
     total_chunks = 0
     total_upserted = 0
     articles_processed = 0
+    skipped_chunks: list[dict] = []
 
     if args.limit:
         # ── Limit mode: fast smoke-test, stream N articles directly from URL ──
@@ -116,7 +117,7 @@ def main() -> None:
             if not chunks:
                 continue
             total_chunks += len(chunks)
-            upserted = upsert_chunks(
+            upserted, skipped = upsert_chunks(
                 chunks=chunks,
                 client=client,
                 collection_name=collection_name,
@@ -125,6 +126,7 @@ def main() -> None:
                 batch_size=batch_size,
             )
             total_upserted += upserted
+            skipped_chunks.extend(skipped)
             articles_processed += 1
 
     else:
@@ -196,7 +198,7 @@ def main() -> None:
                 continue
 
             total_chunks += len(chunks)
-            upserted = upsert_chunks(
+            upserted, skipped = upsert_chunks(
                 chunks=chunks,
                 client=client,
                 collection_name=collection_name,
@@ -205,6 +207,7 @@ def main() -> None:
                 batch_size=batch_size,
             )
             total_upserted += upserted
+            skipped_chunks.extend(skipped)
             articles_processed += 1
 
         logger.info(
@@ -222,6 +225,17 @@ def main() -> None:
     logger.info("Articles processed:  %d", articles_processed)
     logger.info("Chunks generated:    %d", total_chunks)
     logger.info("Points upserted:     %d", total_upserted)
+    if skipped_chunks:
+        skipped_titles = sorted({c["title"] for c in skipped_chunks})
+        logger.warning(
+            "%d chunk(s) skipped across %d article(s) — see WARNING/ERROR lines above for details. "
+            "Affected articles: %s",
+            len(skipped_chunks),
+            len(skipped_titles),
+            ", ".join(skipped_titles),
+        )
+    else:
+        logger.info("Chunks skipped:      0")
     logger.info("Qdrant point count:  %d", point_count)
 
 
