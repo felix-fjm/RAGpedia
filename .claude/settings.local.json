@@ -9,7 +9,10 @@
       "WebFetch(domain:ollama.com)",
       "WebFetch(domain:platform.openai.com)",
       "Read(//mnt/c/Users/fjmul/ragpedia_app/api/static/**)",
-      "Bash(powershell.exe -Command \"Select-String -Pattern 'claude-|gpt-|llama' C:\\\\Users\\\\fjmul\\\\ragpedia_app\\\\api\\\\static\\\\index.html | Select-Object LineNumber,Line\")"
+      "Bash(powershell.exe -Command \"Select-String -Pattern 'claude-|gpt-|llama' C:\\\\Users\\\\fjmul\\\\ragpedia_app\\\\api\\\\static\\\\index.html | Select-Object LineNumber,Line\")",
+      "Bash(curl -s -X POST http://localhost:6333/collections/wikipedia/points/count -H 'Content-Type: application/json' -d '{\"filter\":{\"must\":[{\"key\":\"title\",\"match\":{\"value\":\"Albert Einstein\"}}]},\"exact\":true}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Albert Einstein:', d.get\\('result',{}\\).get\\('count','ERR'\\)\\)\")",
+      "Bash(wsl bash *)"
     ]
   }
 }
