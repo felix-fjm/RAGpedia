@@ -1,4 +1,4 @@
-# RAGpedia — Wikipedia-Grounded RAG System
+# RAGpedia - Wikipedia-Grounded RAG System
 
 > Ask any question. Get a sourced, factual answer drawn directly from English Wikipedia - with clickable citations for every claim.
 
@@ -48,7 +48,7 @@ On a **cache hit** (Redis), steps 2–6 are skipped entirely - response in ~2ms.
 | Chunking | Section-aware · 400–600 tokens · 50-token overlap on splits |
 | Section extraction | Two-path: wikitext `== Heading ==` parsing (PATH 1) or Introduction + Body fallback (PATH 2) |
 | Metadata per chunk | `title` · `section` · `url` · `last_modified` · `pageview_rank` |
-| Update cadence | Weekly (design) · timestamp diff · re-embed changed articles only. **Implemented and tested; not deployed as a live schedule in this repo** — see [Weekly Update Worker](#weekly-update-worker) |
+| Update cadence | Weekly (design) · timestamp diff · re-embed changed articles only. **Implemented and tested; not deployed as a live schedule in this repo** - see [Weekly Update Worker](#weekly-update-worker) |
 | Cache | Redis · chunks TTL 24h · answers TTL 6h |
 | LLM providers | OpenAI · Anthropic · Ollama (BYO key) |
 | Backend | FastAPI · async · separate `api` + `worker` containers |
@@ -108,7 +108,7 @@ worker/                     ← ingestion pipeline + weekly update logic
  ├── parse.py                ← filter · parse · clean · chunk
  ├── embed.py                ← batch embed + upsert to Qdrant, with chunk-level crash resilience
  ├── update.py               ← weekly diff + upsert/delete (+ --force-update test mode)
- ├── scheduler.py             ← cron entry point (Monday 03:00) — NOT deployed, see note below
+ ├── scheduler.py             ← cron entry point (Monday 03:00) - NOT deployed, see note below
  └── requirements.txt
 
 qdrant/
@@ -125,7 +125,7 @@ embedder/
 
 - **Docker** + **Docker Compose** (v2)
 - **8 GB RAM minimum** (16 GB recommended for a full-scale ~1M article index)
-- **Disk space** for the Qdrant vector index — scales with how much you ingest (see [scale table](#verifying-your-index))
+- **Disk space** for the Qdrant vector index - scales with how much you ingest (see [scale table](#verifying-your-index))
 - An API key from **OpenAI**, **Anthropic**, or a local **Ollama** model
 - A `get-docker.sh` script is included for convenience on fresh Linux servers
 
@@ -195,7 +195,7 @@ docker compose exec embedder ollama list
 docker compose run --rm -e PYTHONUNBUFFERED=1 worker python ingest.py --limit 5
 ```
 
-**Demo-scale run (~1,500 articles, ~2 hours on CPU)** — this is the scope this repo was actually validated at:
+**Demo-scale run (~1,500 articles, ~2 hours on CPU)** - this is the scope this repo was actually validated at:
 ```bash
 docker compose run --rm -e PYTHONUNBUFFERED=1 worker python ingest.py --limit 1500
 ```
@@ -242,11 +242,11 @@ curl -X POST http://localhost:8000/query \
 |----------|----------------------|
 | OpenAI | `gpt-4o` · `gpt-4o-mini` |
 | Anthropic | `claude-sonnet-5` · `claude-haiku-4-5-20251001` |
-| Ollama (local) | `llama3.2` (must be pulled separately from the embedding model — see note below) |
+| Ollama (local) | `llama3.2` (must be pulled separately from the embedding model - see note below) |
 
 `api/llm.py` validates the `model` field against this exact list and returns `422 Unprocessable Entity` with a clear message for anything else, before any embedding or LLM API work happens.
 
-> **Note on Ollama as an LLM provider:** the `embedder` container only pulls `nomic-embed-text-v1.5` (the embedding model) via `pull_model.sh`. If you select `llama3.2` for chat completions, make sure it's pulled separately (`docker compose exec embedder ollama pull llama3.2`) — the embedder and LLM models are independent even though they share a container.
+> **Note on Ollama as an LLM provider:** the `embedder` container only pulls `nomic-embed-text-v1.5` (the embedding model) via `pull_model.sh`. If you select `llama3.2` for chat completions, make sure it's pulled separately (`docker compose exec embedder ollama pull llama3.2`) - the embedder and LLM models are independent even though they share a container.
 
 **Example response:**
 ```json
@@ -339,7 +339,7 @@ The worker processes each Wikipedia article through 8 steps:
 
 **Deterministic chunk IDs** (`uuid5(title + section + chunk_index)`) make upserts idempotent - re-running ingestion on a changed article overwrites vectors in place without creating duplicates.
 
-**Crash resilience (embed.py):** individual chunks that persistently fail embedding (e.g. malformed content that survives cleaning) are logged with full diagnostic detail (title, section, chunk index, text repr) and **skipped**, rather than crashing the entire multi-hour run. This was validated against real production data — see [Known Issues](#known-issues--edge-cases) below.
+**Crash resilience (embed.py):** individual chunks that persistently fail embedding (e.g. malformed content that survives cleaning) are logged with full diagnostic detail (title, section, chunk index, text repr) and **skipped**, rather than crashing the entire multi-hour run. This was validated against real production data - see [Known Issues](#known-issues--edge-cases) below.
 
 ---
 
@@ -347,7 +347,7 @@ The worker processes each Wikipedia article through 8 steps:
 
 `worker/update.py` implements incremental updates: it diffs a fresh Cirrus dump against what's currently in Qdrant (by `last_modified` timestamp), re-embeds only changed or new articles, deletes articles no longer present in the dump, and flushes the Redis answer cache so stale answers aren't served.
 
-**`worker/scheduler.py`** wires this up to run every Monday at 03:00 via the `schedule` library — but **this scheduler is not deployed or running anywhere in this repo's demo environment.** It exists to show the intended production entry point. Running it as a live cron job requires standing up a long-lived worker process (e.g. via `docker compose up -d` on the worker service with `scheduler.py` as the entrypoint), which is outside the scope of this portfolio deployment.
+**`worker/scheduler.py`** wires this up to run every Monday at 03:00 via the `schedule` library - but **this scheduler is not deployed or running anywhere in this repo's demo environment.** It exists to show the intended production entry point. Running it as a live cron job requires standing up a long-lived worker process (e.g. via `docker compose up -d` on the worker service with `scheduler.py` as the entrypoint), which is outside the scope of this portfolio deployment.
 
 **Validation:** rather than run a full weekly diff against ~1M articles (multi-hour, requires a full dump scan to compute the popularity threshold), `update.py` also supports a `--force-update TITLE [TITLE ...]` mode that skips the full-dump scan and streams directly from the dump URL, stopping as soon as the named titles are found. This was used to validate the core diff/upsert/delete logic against the live demo index:
 
@@ -394,7 +394,7 @@ Expected scale:
 To be transparent about what's actually been run and verified, as opposed to designed-for:
 
 - **Ingestion (Phase 2):** run to completion with `--limit 1500` → **1,479 articles, 20,726 points** upserted cleanly into Qdrant. The full unbounded (~1M article) run has not been executed end-to-end in this repo.
-- **Query API (Phase 3):** tested live via curl and the browser UI against the demo-scale index above — confirmed correct grounded answers with citations, correct cache-hit behavior, and correct refusal ("I cannot answer") when the index has no relevant content, rather than hallucinating.
+- **Query API (Phase 3):** tested live via curl and the browser UI against the demo-scale index above - confirmed correct grounded answers with citations, correct cache-hit behavior, and correct refusal ("I cannot answer") when the index has no relevant content, rather than hallucinating.
 - **Weekly update worker (Phase 4):** implemented per spec and validated via `--force-update` against two real articles in the live demo index (see [Weekly Update Worker](#weekly-update-worker) above). Not deployed as a live schedule.
 - **UI (Phase 5):** tested live in-browser against the demo-scale index, including model selection, API key entry, source rendering, and the cached-answer badge.
 
@@ -404,14 +404,14 @@ To be transparent about what's actually been run and verified, as opposed to des
 
 **Persistent embedder 400 on specific chunks.** During ingestion, the Wikipedia article *"Benin"* consistently triggers a `400 Bad Request` from the Ollama embedder on 2 of its chunks, even after word-count-based truncation and retry. The root cause wasn't fully isolated (candidates: an encoding quirk or unusual whitespace surviving cleanup) but the pipeline handles it correctly by design: `embed.py` logs full diagnostic detail (title, section, chunk index, text repr) and skips just that chunk, letting the rest of the article and all subsequent articles process normally. This was reproduced and confirmed handled correctly on two independent runs (`ingest.py` and `update.py --force-update`), so it's a known, contained edge case rather than a pipeline-ending bug.
 
-**Full-scale (~1M article) ingestion is untested.** The pipeline is designed for it (two-pass streaming keeps memory flat regardless of dump size — see `ingest.py`), but this repo's validation was intentionally scoped to ~1,500 articles for demo purposes. Expect to encounter more edge cases like the Benin case above at full scale; the skip-and-log resilience should handle them without crashing, but this hasn't been proven beyond the demo scale.
+**Full-scale (~1M article) ingestion is untested.** The pipeline is designed for it (two-pass streaming keeps memory flat regardless of dump size - see `ingest.py`), but this repo's validation was intentionally scoped to ~1,500 articles for demo purposes. Expect to encounter more edge cases like the Benin case above at full scale; the skip-and-log resilience should handle them without crashing, but this hasn't been proven beyond the demo scale.
 
 ---
 
 ## Troubleshooting
 
 **`400 Bad Request` from embedder**
-Handled automatically — see [Known Issues](#known-issues--edge-cases) above. If you see a `WARNING` or `ERROR` log line mentioning a specific title, that chunk was skipped and ingestion continued; check the end-of-run summary for a full list of skipped chunks.
+Handled automatically - see [Known Issues](#known-issues--edge-cases) above. If you see a `WARNING` or `ERROR` log line mentioning a specific title, that chunk was skipped and ingestion continued; check the end-of-run summary for a full list of skipped chunks.
 
 **WSL2 `SIGBUS` crash during Docker build**
 Your system ran out of RAM. Fix: `wsl --shutdown` from PowerShell, then add a memory cap:
@@ -424,10 +424,10 @@ swap=4GB
 Then rebuild with `DOCKER_BUILDKIT=0 docker compose build --no-cache worker`.
 
 **`points_count: 0` after ingestion, or UI shows old/placeholder content**
-The container ran with a stale image. Always rebuild after pulling new code: `docker compose build --no-cache worker` / `docker compose build --no-cache api`. Also double-check `.dockerignore` isn't excluding directories your Dockerfile's `COPY` step needs (e.g. `api/static/`) — an overly broad `.dockerignore` entry is an easy way to silently ship an image missing files that exist fine on the host.
+The container ran with a stale image. Always rebuild after pulling new code: `docker compose build --no-cache worker` / `docker compose build --no-cache api`. Also double-check `.dockerignore` isn't excluding directories your Dockerfile's `COPY` step needs (e.g. `api/static/`) - an overly broad `.dockerignore` entry is an easy way to silently ship an image missing files that exist fine on the host.
 
 **Retrieval returns unrelated articles**
-Your index is too small - with very few articles, cosine similarity has little to work with and returns the least-dissimilar chunks regardless of relevance. This is also the *correct* behavior when you ask about something genuinely outside your index — the LLM should say it can't answer rather than hallucinate. Run a larger `--limit` for broader topical coverage.
+Your index is too small - with very few articles, cosine similarity has little to work with and returns the least-dissimilar chunks regardless of relevance. This is also the *correct* behavior when you ask about something genuinely outside your index - the LLM should say it can't answer rather than hallucinate. Run a larger `--limit` for broader topical coverage.
 
 **`cached: true` returning stale answers**
 Redis answer TTL is 6 hours. To flush immediately:
@@ -442,11 +442,11 @@ GitHub requires a Personal Access Token (classic, with the `repo` scope) in plac
 
 ## Roadmap
 
-- [x] Phase 1 — Infrastructure (Qdrant · Redis · Ollama embedder)
-- [x] Phase 2 — Ingestion worker (download · filter · parse · clean · chunk · embed · upsert), with chunk-level crash resilience
-- [x] Phase 3 — Query API (FastAPI · Redis cache · LLM connector · model validation)
-- [x] Phase 4 — Weekly update worker (timestamp diff · incremental upsert/delete · cache flush) — implemented and validated, not deployed as a live schedule
-- [x] Phase 5 — UI (single-page HTML served by API container)
+- [x] Phase 1 - Infrastructure (Qdrant · Redis · Ollama embedder)
+- [x] Phase 2 - Ingestion worker (download · filter · parse · clean · chunk · embed · upsert), with chunk-level crash resilience
+- [x] Phase 3 - Query API (FastAPI · Redis cache · LLM connector · model validation)
+- [x] Phase 4 - Weekly update worker (timestamp diff · incremental upsert/delete · cache flush) - implemented and validated, not deployed as a live schedule
+- [x] Phase 5 - UI (single-page HTML served by API container)
 
 ---
 
@@ -454,7 +454,7 @@ GitHub requires a Personal Access Token (classic, with the `repo` scope) in plac
 
 **Embeddings:** `nomic-embed-text-v1.5` is a BERT-style transformer (12 layers, 768d). Input text → BPE tokens → 12 layers of multi-head self-attention → mean-pool → L2-normalise → `float32[768]`. Semantically similar text lands geometrically close in this space; cosine similarity measures the angle between vectors.
 
-**HNSW search:** Qdrant's Hierarchical Navigable Small World index navigates a small set of candidate vectors from millions without brute-force comparison — returning top-k results in ~5–20ms with ~99% recall vs exact search.
+**HNSW search:** Qdrant's Hierarchical Navigable Small World index navigates a small set of candidate vectors from millions without brute-force comparison - returning top-k results in ~5–20ms with ~99% recall vs exact search.
 
 **RAG grounding:** The LLM never accesses Qdrant directly. The API retrieves top-5 chunks, injects them as context with the instruction `"answer ONLY using the context below"`, then calls the LLM. The model synthesises an answer from provided paragraphs - it cannot invent facts that contradict the context, and correctly declines to answer when the context doesn't cover the question.
 
@@ -462,7 +462,7 @@ GitHub requires a Personal Access Token (classic, with the `repo` scope) in plac
 
 ## Security Notes
 
-- API keys are never stored server-side — passed per-request as a Bearer token, held only in browser memory client-side.
+- API keys are never stored server-side - passed per-request as a Bearer token, held only in browser memory client-side.
 - `.env` (containing infrastructure config, never LLM API keys) is gitignored.
 - No secrets are committed to this repository's git history.
 
